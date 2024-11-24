@@ -3,7 +3,7 @@ import math
 import time
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
-
+import logging
 from bidict import bidict
 
 from hummingbot.connector.constants import s_decimal_NaN
@@ -272,25 +272,32 @@ class CoinstoreExchange(ExchangePyBase):
         remote_asset_names = set()
 
         import json
-        payload = json.dumps({})
-        payload = payload.encode("utf-8")
+        # payload = json.dumps({})
+        # payload = payload.encode("utf-8")
+
+        payload = {}
 
         account_info = await self._api_post(
             path_url=CONSTANTS.GET_ACCOUNT_SUMMARY_PATH_URL,
-            data=payload)
+            data=payload,
+            is_auth_required=True
+        )
 
-        # import requests
-        # url = "https://api.coinstore.com/api/spot/accountList"
-        # headers = CoinstoreAuth.authentication_headers()
-        # account_info = requests.request("POST", url, headers=headers, data=payload)
-
-        for account in account_info.json()["data"]:
+        for account in account_info["data"]:
             asset_name = account["currency"]
-            try:
-                self._account_available_balances[asset_name] = Decimal(str(account["AVAILABLE"]))
-                self._account_balances[asset_name] = self._account_balances[asset_name] + Decimal(str(account["AVAILABLE"]))
-            except:
-                self._account_balances[asset_name] = self._account_balances[asset_name] + Decimal(str(account["FROZEN"]))
+
+            if account['typeName'] == "AVAILABLE":
+                try:
+                    self._account_available_balances[asset_name] = Decimal(str(account["balance"]))
+                    self._account_balances[asset_name] = self._account_balances[asset_name] + Decimal(str(account["balance"]))
+                except:
+                    self._account_available_balances[asset_name] = Decimal(str(account["balance"]))
+                    self._account_balances[asset_name] = Decimal(str(account["balance"]))
+            else:
+                try:
+                    self._account_balances[asset_name] = self._account_balances[asset_name] + Decimal(str(account["balance"]))
+                except:
+                    self._account_balances[asset_name] = Decimal(str(account["balance"]))
             remote_asset_names.add(asset_name)
 
         asset_names_to_remove = local_asset_names.difference(remote_asset_names)
