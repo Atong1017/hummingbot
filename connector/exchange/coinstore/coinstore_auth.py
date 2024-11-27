@@ -1,10 +1,10 @@
 import hashlib
 import hmac
 import json
+import math
 from typing import Any, Dict, List, Optional
 import time
 
-from hummingbot.connector.exchange.coinstore import coinstore_constants as CONSTANTS
 from hummingbot.connector.time_synchronizer import TimeSynchronizer
 from hummingbot.core.web_assistant.auth import AuthBase
 from hummingbot.core.web_assistant.connections.data_types import RESTRequest, WSRequest
@@ -12,14 +12,13 @@ from hummingbot.core.web_assistant.connections.data_types import RESTRequest, WS
 
 class CoinstoreAuth(AuthBase):
     """
-    Auth class required by Coinstore API
+    Auth class required by BitMart API
     Learn more at https://developer-pro.bitmart.com/en/part2/auth.html
     """
 
     def __init__(self, api_key: str, secret_key: str, time_provider: TimeSynchronizer):
         self.api_key = api_key
         self.secret_key = secret_key
-        # self.memo = memo
         self.time_provider: TimeSynchronizer = time_provider
 
     async def rest_authenticate(self, request: RESTRequest) -> RESTRequest:
@@ -47,24 +46,18 @@ class CoinstoreAuth(AuthBase):
         """
         return request  # pass-through
 
-    def _generate_signature(self, timestamp: str, body: Optional[str] = None) -> str:
-        # body = body or ""
-        # unsigned_signature = f"{str(timestamp)}#{body}"
-        #
-        # signature = hmac.new(
-        #     self.secret_key.encode("utf-8"),
-        #     unsigned_signature.encode("utf-8"),
-        #     hashlib.sha256).hexdigest()
-
-        import math
-
+    def _generate_signature(self, method, timestamp: str, body: Optional[str] = None) -> str:
         expires_key = str(math.floor(int(timestamp) / 30000))
         expires_key = expires_key.encode("utf-8")
 
         key = hmac.new(self.secret_key.encode('utf-8'), expires_key, hashlib.sha256).hexdigest()
         key = key.encode("utf-8")
 
-        payload = json.dumps({})
+        if method == "GET":
+            payload = body
+        else:
+            payload = json.dumps(json.loads(body))
+        # payload = json.dumps({})
         payload = payload.encode("utf-8")
 
         signature = hmac.new(key, payload, hashlib.sha256).hexdigest()
@@ -72,11 +65,13 @@ class CoinstoreAuth(AuthBase):
         return signature
 
     def authentication_headers(self, request: RESTRequest) -> Dict[str, Any]:
-        timestamp = str(int(time.time() * 1000))
-
-        # params = json.dumps(request.params) if request.params is not None else request.data
-
-        sign = self._generate_signature(timestamp=timestamp)
+        timestamp = str(int(self.time_provider.time() * 1e3))
+        params = json.dumps(request.params) if request.params is not None else request.data
+        method = "GET" if request.data is not None else "POST"
+        sign = self._generate_signature(method, timestamp=timestamp, body=params)
+        #
+        # timestamp = str(int(time.time() * 1000))
+        # sign = self._generate_signature(timestamp=timestamp)
 
         header = {
             "X-CS-APIKEY": self.api_key,
@@ -91,7 +86,7 @@ class CoinstoreAuth(AuthBase):
         return header
 
     def websocket_login_parameters(self) -> List[str]:
-        timestamp = str(int(time.time() * 1000))
+        timestamp = str(int(self.time_provider.time() * 1e3))
 
         return [
             self.api_key,

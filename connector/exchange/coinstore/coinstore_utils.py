@@ -23,8 +23,8 @@ def is_exchange_information_valid(exchange_info: Dict[str, Any]) -> bool:
     :param exchange_info: the exchange information for a trading pair
     :return: True if the trading pair is enabled, False otherwise
     """
-    return exchange_info.get("trade_status", None) == "trading"
-
+    return exchange_info.get("openTrade", False)
+    # return exchange_info.get("trade_status", None) == "trading"
 
 # Decompress WebSocket messages
 def decompress_ws_message(message):
