@@ -321,6 +321,7 @@ class CoinstoreExchange(ExchangePyBase):
             is_auth_required=True
         )
 
+        account_balances_temp = {}
         for account in account_info["data"]:
             asset_name = account.get("currency")  # 獲取資產名稱
             balance = account.get("balance", 0)  # 獲取資產餘額
@@ -332,21 +333,21 @@ class CoinstoreExchange(ExchangePyBase):
             if account_type == "AVAILABLE":
                 self._account_available_balances[asset_name] = Decimal(balance)
                 try:
-                    self._account_balances[asset_name] += Decimal(balance)
+                    account_balances_temp[asset_name] += Decimal(balance)
                 except:
-                    self._account_balances[asset_name] = Decimal(balance)
+                    account_balances_temp[asset_name] = Decimal(balance)
 
-            # elif account_type == "FROZEN":
-            #     try:
-            #         self._account_balances[asset_name] += Decimal(balance)
-            #     except:
-            #         self._account_balances[asset_name] = Decimal(balance)
+            elif account_type == "FROZEN":
+                try:
+                    account_balances_temp[asset_name] += Decimal(balance)
+                except:
+                    account_balances_temp[asset_name] = Decimal(balance)
 
             # try:
             #     self._account_balances[asset_name] += Decimal(balance)
             # except:
             #     self._account_balances[asset_name] = Decimal(balance)
-
+            self._account_balances[asset_name] = account_balances_temp[asset_name]
             remote_asset_names.add(asset_name)
 
         asset_names_to_remove = local_asset_names.difference(remote_asset_names)
