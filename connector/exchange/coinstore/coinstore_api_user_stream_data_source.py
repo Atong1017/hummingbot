@@ -13,6 +13,28 @@ from hummingbot.logger import HummingbotLogger
 if TYPE_CHECKING:
     from hummingbot.connector.exchange.coinstore.coinstore_exchange import CoinstoreExchange
 
+import os
+from datetime import datetime
+
+
+# logging無法使用，暫用
+def write_logs(text):
+    # Set up the logger with a directory in Windows (e.g., C:\hummingbot_logs)
+    LOG_DIR = "/mnt/c/hummingbot_logs"
+    os.makedirs(LOG_DIR, exist_ok=True)
+    LOG_FILE_PATH = os.path.join(LOG_DIR, "coinstore_connector.log")
+
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Format the log entry
+    log_entry = f"{current_time} - coinstore_api_user_stream_data_source - {text}"
+
+    with open(LOG_FILE_PATH, "a") as test_file:
+        test_file.write(log_entry + '\n')
+
+
+write_logs('Start')
+
 
 class CoinstoreAPIUserStreamDataSource(UserStreamTrackerDataSource):
 

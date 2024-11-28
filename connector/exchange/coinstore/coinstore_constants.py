@@ -3,6 +3,25 @@
 from hummingbot.core.api_throttler.data_types import RateLimit
 from hummingbot.core.data_type.in_flight_order import OrderState
 
+import os
+from datetime import datetime
+
+
+# logging無法使用，暫用
+def write_logs(text):
+    # Set up the logger with a directory in Windows (e.g., C:\hummingbot_logs)
+    LOG_DIR = "/mnt/c/hummingbot_logs"
+    os.makedirs(LOG_DIR, exist_ok=True)
+    LOG_FILE_PATH = os.path.join(LOG_DIR, "coinstore_connector.log")
+
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Format the log entry
+    log_entry = f"{current_time} - coinstore_constants - {text}"
+
+    with open(LOG_FILE_PATH, "a") as test_file:
+        test_file.write(log_entry + '\n')
+
 EXCHANGE_NAME = "coinstore"
 REST_URL = "https://api.coinstore.com"
 WSS_PUBLIC_URL = "wss://ws.coinstore.com/s/ws"
@@ -20,8 +39,8 @@ PRIVATE_ORDER_PROGRESS_CHANNEL_NAME = "@trade"
 
 # REST API ENDPOINTS
 CHECK_NETWORK_PATH_URL = "/api/system/service"  # ?
-GET_TRADING_RULES_PATH_URL = '/v2/public/config/spot/symbols'  # 现货币种币对信息
-# GET_TRADING_RULES_PATH_URL = "/api/v1/ticker/price"  # 获取所有交易对最新价格
+GET_TRADING_RULES_PATH_URL = '/api/v2/public/config/spot/symbols'  # 现货币种币对信息
+GET_PRICE_PATH_URL = "/api/v1/ticker/price"  # 获取所有交易对最新价格
 GET_LAST_TRADING_PRICES_PATH_URL = "/api/v1/market/tickers"  # 市场所有交易对的Ticker
 GET_ORDER_BOOK_PATH_URL = "/api/v1/market/depth"  # 获取交易对完整的深度
 CREATE_ORDER_PATH_URL = "/api/trade/order/place"  # 创建订单
@@ -40,6 +59,7 @@ RATE_LIMITS = [
     RateLimit(limit_id=CHECK_NETWORK_PATH_URL, limit=10, time_interval=1),
     RateLimit(limit_id=GET_TRADING_RULES_PATH_URL, limit=30, time_interval=5),
     RateLimit(limit_id=GET_LAST_TRADING_PRICES_PATH_URL, limit=30, time_interval=5),
+    RateLimit(limit_id=GET_PRICE_PATH_URL, limit=30, time_interval=5),
     RateLimit(limit_id=GET_ORDER_BOOK_PATH_URL, limit=30, time_interval=5),
     RateLimit(limit_id=CREATE_ORDER_PATH_URL, limit=150, time_interval=5),
     RateLimit(limit_id=CANCEL_ORDER_PATH_URL, limit=150, time_interval=5),
