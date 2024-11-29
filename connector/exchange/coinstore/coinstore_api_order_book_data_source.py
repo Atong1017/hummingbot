@@ -2,6 +2,7 @@ import asyncio
 import json
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import websockets
+import time
 # import sys
 #
 # hummingbot_path = r"D:\Python\hummingbot"  # 替換為你本地的 hummingbot 資料夾路徑
@@ -24,27 +25,6 @@ import requests
 if TYPE_CHECKING:
     from hummingbot.connector.exchange.coinstore.coinstore_exchange import CoinstoreExchange
 
-import os
-from datetime import datetime
-
-
-# logging無法使用，暫用
-def write_logs(text):
-    # Set up the logger with a directory in Windows (e.g., C:\hummingbot_logs)
-    LOG_DIR = "/mnt/c/hummingbot_logs"
-    os.makedirs(LOG_DIR, exist_ok=True)
-    LOG_FILE_PATH = os.path.join(LOG_DIR, "coinstore_connector.log")
-
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # Format the log entry
-    log_entry = f"{current_time} - coinstore_api_order_book_data_source - {text}"
-
-    with open(LOG_FILE_PATH, "a") as test_file:
-        test_file.write(log_entry + '\n')
-
-write_logs('Start')
-
 
 class CoinstoreAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
@@ -66,26 +46,16 @@ class CoinstoreAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def get_last_traded_prices(self,
                                      trading_pairs: List[str],
                                      domain: Optional[str] = None) -> Dict[str, float]:
-        # return await self._connector.get_last_traded_prices(trading_pairs=trading_pairs)
-        write_logs(f'get_last_traded_prices : trading_pairs => {trading_pairs}')
         url_price = 'https://api.coinstore.com/api/v1/ticker/price'
         response_ticker = requests.request("GET", url_price).text
-        write_logs(f'get_last_traded_prices : response_ticker => {response_ticker}')
         data_ticker = json.loads(response_ticker)['data']
 
         results = {}
         for trading_pair in trading_pairs:
             symbol = trading_pair.replace("-", "").replace("_", "").upper()
-
-            write_logs(f'get_last_traded_prices : symbol => {symbol}')
-
             price = [a for a in data_ticker if a['symbol'] == symbol]
-
-            write_logs(f'get_last_traded_prices : price => {price}')
-
             if price:
                 results[trading_pair] = float(price[0]["price"])  # 获取第一个匹配项的价格
-                write_logs(f'get_last_traded_prices : results[trading_pair] => {results[trading_pair]}')
             else:
                 results[trading_pair] = None  # 如果没有找到价格，设置为 None
 
@@ -117,7 +87,6 @@ class CoinstoreAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 "id": 1
             }
             await ws.send(json.dumps(subscribe_message))
-            self.logger.info(f"Subscribed to channel: {self.channel}")
 
             while True:
                 try:
@@ -140,12 +109,10 @@ class CoinstoreAPIOrderBookDataSource(OrderBookTrackerDataSource):
         :param raw_message: The raw JSON message received from the WebSocket.
         :param message_queue: Queue to push parsed messages.
         """
-        write_logs(f'_parse_order_book_snapshot_message : self => {raw_message} ** {message_queue}')
         if "b" in raw_message and "a" in raw_message:
             # Extract and normalize depth data
             bids = raw_message["b"]  # Example: [["price", "quantity"], ...]
             asks = raw_message["a"]  # Example: [["price", "quantity"], ...]
-            write_logs(f'_parse_order_book_snapshot_message : bids asks => {bids} ** {asks}')
 
             parsed_data = {
                 "bids": [{"price": float(bid[0]), "quantity": float(bid[1])} for bid in bids],
@@ -155,32 +122,30 @@ class CoinstoreAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 "level": raw_message.get("level"),
             }
             await message_queue.put(parsed_data)
-            write_logs(f'_parse_order_book_snapshot_message : parsed_data => {parsed_data}')
-            
+
+    # === coinstroe ===
     async def _order_book_snapshot(self, trading_pair: str) -> OrderBookMessage:
-        write_logs(f'_order_book_snapshot : trading_pair => {trading_pair}')
         snapshot_response: Dict[str, Any] = await self._request_order_book_snapshot(trading_pair)
-        write_logs(f'_order_book_snapshot : snapshot_response => {snapshot_response}')
         snapshot_data: Dict[str, Any] = snapshot_response["data"]
-        write_logs(f'_order_book_snapshot : snapshot_data => {snapshot_data}')
-        snapshot_timestamp: float = int(snapshot_data["timestamp"])
-        write_logs(f'_order_book_snapshot : snapshot_timestamp => {snapshot_timestamp}')
-        update_id: int = int(snapshot_data["timestamp"])
-        write_logs(f'_order_book_snapshot : update_id => {update_id}')
+
+        snapshot_timestamp: int = int(time.time() * 1000)
+        update_id: int = int(time.time() * 1000)
 
         order_book_message_content = {
-            "trading_pair": trading_pair.replace("-", "").replace("_", "").upper(),
+            "trading_pair": trading_pair,
             "update_id": update_id,
-            "bids": [(bid["price"], bid["amount"]) for bid in snapshot_data["buys"]],
-            "asks": [(ask["price"], ask["amount"]) for ask in snapshot_data["sells"]],
+            "bids": [(bid[0], bid[1]) for bid in snapshot_data["b"]],
+            "asks": [(ask[0], ask[1]) for ask in snapshot_data["a"]],
         }
+
         snapshot_msg: OrderBookMessage = OrderBookMessage(
             OrderBookMessageType.SNAPSHOT,
             order_book_message_content,
             snapshot_timestamp)
-        write_logs(f'_order_book_snapshot : snapshot_msg => {snapshot_msg}')
+
         return snapshot_msg
 
+    # === coinstrore ===
     async def _request_order_book_snapshot(self, trading_pair: str) -> Dict[str, Any]:
         """
         Retrieves a copy of the full order book from the exchange, for a particular trading pair.
@@ -189,31 +154,27 @@ class CoinstoreAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
         :return: the response from the exchange (JSON dictionary)
         """
-        write_logs(f'_request_order_book_snapshot : trading_pair => {trading_pair}')
+        # 例:trading_pair='BTCUSDT'
+
+        # /api/v1/market/depth/BTCUSDT
+        endpoint = CONSTANTS.GET_ORDER_BOOK_PATH_URL + trading_pair.upper()
         params = {
-            "symbol": await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair).replace("-", "").replace("_", "").upper(),
-            "size": 200
+            'depth': 10
         }
 
-        rest_assistant = await self._api_factory.get_rest_assistant()
-        write_logs(f'_request_order_book_snapshot : rest_assistant => {rest_assistant}')
-        data = await rest_assistant.execute_request(
-            url=web_utils.public_rest_url(path_url=CONSTANTS.GET_ORDER_BOOK_PATH_URL),
-            params=params,
-            method=RESTMethod.GET,
-            throttler_limit_id=CONSTANTS.GET_ORDER_BOOK_PATH_URL,
-        )
-        write_logs(f'_request_order_book_snapshot : data => {data}')
+        # https://api.coinstore.com/api/v1/market/depth/BTCUSDT
+        url = web_utils.public_rest_url(path_url=endpoint)
+
+        data = requests.get(url, params=params).json()
 
         return data
 
+    # === 還未更改 ===
     async def _parse_trade_message(self, raw_message: Dict[str, Any], message_queue: asyncio.Queue):
-        write_logs(f'_parse_trade_message : data => {raw_message}  **  {message_queue}')
         trade_updates = raw_message["data"]
-        
+
         for trade_data in trade_updates:
             trading_pair = await self._connector.trading_pair_associated_to_exchange_symbol(symbol=trade_data["symbol"])
-            write_logs(f'_parse_trade_message : trading_pair => {trading_pair}')
             message_content = {
                 "trade_id": int(trade_data["s_t"]),
                 "trading_pair": trading_pair.replace("-", "").replace("_", "").upper(),
@@ -227,29 +188,30 @@ class CoinstoreAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 content=message_content,
                 timestamp=int(trade_data["s_t"]))
 
-            write_logs(f'_parse_trade_message : trade_message => {trade_message}')
             message_queue.put_nowait(trade_message)
 
     async def _parse_order_book_diff_message(self, raw_message: Dict[str, Any], message_queue: asyncio.Queue):
         # Coinstore never sends diff messages. This method will never be called
         pass
 
+    # === coinstre ===
     async def _subscribe_channels(self, ws: WSAssistant):
-        write_logs(f'_subscribe_channels!!!!!')
         try:
             symbols = [await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
                        for trading_pair in self._trading_pairs]
-
-            write_logs(f'_subscribe_channels : symbols => {symbols}')
+            channels = [f"{pair}{CONSTANTS.PUBLIC_TRADE_CHANNEL_NAME}" for pair in symbols]
             payload = {
-                "op": "subscribe",
-                "args": [f"{CONSTANTS.PUBLIC_TRADE_CHANNEL_NAME}:{symbol}" for symbol in symbols]
+                "op": "SUB",
+                "channel": channels,  # 替换为实际订阅参数
+                "id": 1
             }
             subscribe_trade_request: WSJSONRequest = WSJSONRequest(payload=payload)
 
+            channels = [f"{pair}{CONSTANTS.PUBLIC_DEPTH_CHANNEL_NAME}" for pair in symbols]
             payload = {
-                "op": "subscribe",
-                "args": [f"{CONSTANTS.PUBLIC_DEPTH_CHANNEL_NAME}:{symbol}" for symbol in symbols]
+                "op": "SUB",
+                "channel": channels,  # 替换为实际订阅参数
+                "id": 1
             }
             subscribe_orderbook_request: WSJSONRequest = WSJSONRequest(payload=payload)
 
@@ -265,41 +227,42 @@ class CoinstoreAPIOrderBookDataSource(OrderBookTrackerDataSource):
             self.logger().exception("Unexpected error occurred subscribing to order book trading and delta streams...")
             raise
 
+    # ===
     async def _process_websocket_messages(self, websocket_assistant: WSAssistant):
         async for ws_response in websocket_assistant.iter_messages():
             data: Dict[str, Any] = ws_response.data
-            write_logs(f'_subscribe_channels : data => {data}')
             decompressed_data = utils.decompress_ws_message(data)
+
             try:
                 if type(decompressed_data) == str:
                     json_data = json.loads(decompressed_data)
                 else:
                     json_data = decompressed_data
             except Exception:
-                write_logs(f'_subscribe_channels : decompressed_data => {decompressed_data}')
 
                 continue
 
-            if "errorCode" in json_data or "errorMessage" in json_data:
-                write_logs(f'_subscribe_channels : json_data => {json_data}')
+            # ================================================
+            # ================================================
+            if json_data.get("M") != "established":
                 raise ValueError(f"Error message received in the order book data source: {json_data}")
 
             channel: str = self._channel_originating_message(event_message=json_data)
-            write_logs(f'_subscribe_channels : channel => {channel}')
             if channel in [self._diff_messages_queue_key, self._trade_messages_queue_key]:
+
+                # ==========================
+                # ========這裡有錯==========
+                # ==========================
                 self._message_queue[channel].put_nowait(json_data)
 
     def _channel_originating_message(self, event_message: Dict[str, Any]) -> str:
-        write_logs(f'_channel_originating_message : event_message => {event_message}')
         channel = ""
         if "data" in event_message:
             event_channel = event_message["table"]
             if event_channel == CONSTANTS.PUBLIC_TRADE_CHANNEL_NAME:
                 channel = self._trade_messages_queue_key
-                write_logs(f'_channel_originating_message : channel_t => {channel}')
             if event_channel == CONSTANTS.PUBLIC_DEPTH_CHANNEL_NAME:
                 channel = self._diff_messages_queue_key
-                write_logs(f'_channel_originating_message : channel_d => {channel}')
 
         return channel
 

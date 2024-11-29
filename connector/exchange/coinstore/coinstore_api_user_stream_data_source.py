@@ -1,5 +1,7 @@
 import asyncio
+import websocket
 import json
+import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from hummingbot.connector.exchange.coinstore import coinstore_constants as CONSTANTS, coinstore_utils as utils
@@ -12,28 +14,6 @@ from hummingbot.logger import HummingbotLogger
 
 if TYPE_CHECKING:
     from hummingbot.connector.exchange.coinstore.coinstore_exchange import CoinstoreExchange
-
-import os
-from datetime import datetime
-
-
-# logging無法使用，暫用
-def write_logs(text):
-    # Set up the logger with a directory in Windows (e.g., C:\hummingbot_logs)
-    LOG_DIR = "/mnt/c/hummingbot_logs"
-    os.makedirs(LOG_DIR, exist_ok=True)
-    LOG_FILE_PATH = os.path.join(LOG_DIR, "coinstore_connector.log")
-
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # Format the log entry
-    log_entry = f"{current_time} - coinstore_api_user_stream_data_source - {text}"
-
-    with open(LOG_FILE_PATH, "a") as test_file:
-        test_file.write(log_entry + '\n')
-
-
-write_logs('Start')
 
 
 class CoinstoreAPIUserStreamDataSource(UserStreamTrackerDataSource):
@@ -53,19 +33,21 @@ class CoinstoreAPIUserStreamDataSource(UserStreamTrackerDataSource):
         self._connector = connector
         self._api_factory = api_factory
 
+    # === coinstrore ===
     async def _connected_websocket_assistant(self) -> WSAssistant:
         """
         Creates an instance of WSAssistant connected to the exchange
         """
-
         ws: WSAssistant = await self._get_ws_assistant()
         await ws.connect(
             ws_url=CONSTANTS.WSS_PRIVATE_URL,
             ping_timeout=CONSTANTS.WS_PING_TIMEOUT)
 
+        channels = [f"{pair}@ticker" for pair in self._trading_pairs]  # 使用 trading_pairs 动态生成频道列表
         payload = {
-            "op": "login",
-            "args": self._auth.websocket_login_parameters()
+            "op": "SUB",
+            "channel": channels,
+            "id": 1
         }
 
         login_request: WSJSONRequest = WSJSONRequest(payload=payload)
@@ -75,20 +57,21 @@ class CoinstoreAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
         response: WSResponse = await ws.receive()
         message = response.data
-        if "errorCode" in message or "error_code" in message or message.get("event") != "login":
+        if "errorCode" in message or "error_code" in message or message.get("M") != "established":
             self.logger().error("Error authenticating the private websocket connection")
             raise IOError(f"Private websocket connection authentication failed ({message})")
 
         return ws
 
+    # ====================
+    # ==========================
     async def _subscribe_channels(self, websocket_assistant: WSAssistant):
         try:
-            symbols = [await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
-                       for trading_pair in self._trading_pairs]
-
+            channels = [f"{pair}@trade" for pair in self._trading_pairs]
             payload = {
-                "op": "subscribe",
-                "args": [f"{CONSTANTS.PRIVATE_ORDER_PROGRESS_CHANNEL_NAME}:{symbol}" for symbol in symbols]
+                "op": "SUB",
+                "channel": channels,
+                "id": 1
             }
             subscribe_request: WSJSONRequest = WSJSONRequest(payload=payload)
 
