@@ -22,15 +22,16 @@ PRIVATE_ORDER_PROGRESS_CHANNEL_NAME = "@trade"
 CHECK_NETWORK_PATH_URL = "/api/system/service"  # ?
 GET_PRICE_PATH_URL = "/api/v1/ticker/price"  # 获取所有交易对最新价格
 GET_LAST_TRADING_PRICES_PATH_URL = "/api/v1/market/tickers"  # 市场所有交易对的Ticker
-GET_ORDER_BOOK_PATH_URL = "/api/v1/market/depth/"  # 获取交易对完整的深度
+GET_ORDER_BOOK_PATH_URL = "/api/v1/market/depth"  # 获取交易对完整的深度
 GET_TRADE_DETAIL_PATH_URL = "/api/trade/match/accountMatches"  # 获取用户最新成交
+GET_ACTIVE_ORDERS_PATH_URL = "/api/v2/trade/order/active"  # 获取当前订单 v2 版本
 
 # ==== POST ====
 GET_TRADING_RULES_PATH_URL = '/api/v2/public/config/spot/symbols'  # 现货币种币对信息
 CREATE_ORDER_PATH_URL = "/api/trade/order/place"  # 创建订单
 CANCEL_ORDER_PATH_URL = "/api/trade/order/cancel"  # 取消委托单
 GET_ACCOUNT_SUMMARY_PATH_URL = "/api/spot/accountList"
-GET_ORDER_DETAIL_PATH_URL = "/api/trade/order/orderInfo"  # 获取订单信息
+GET_ORDER_DETAIL_PATH_URL = "/api/v2/trade/order/orderInfo"  # 获取订单信息V2
 
 SERVER_TIME_PATH = "/api/system/time"
 
@@ -56,12 +57,10 @@ RATE_LIMITS = [
 ]
 
 ORDER_STATE = {
-    "1": OrderState.FAILED,
-    "2": OrderState.OPEN,
-    "3": OrderState.FAILED,
-    "4": OrderState.OPEN,
-    "5": OrderState.PARTIALLY_FILLED,
-    "6": OrderState.FILLED,
-    "7": OrderState.PENDING_CANCEL,
-    "8": OrderState.CANCELED,
+    "NOT_FOUND": OrderState.FAILED,
+    "SUBMITTING": OrderState.PENDING_CREATE,
+    "SUBMITTED": OrderState.OPEN,
+    "PARTIAL_FILLED": OrderState.PARTIALLY_FILLED,
+    "CANCELED": OrderState.CANCELED,
+    "FILLED": OrderState.FILLED,
 }

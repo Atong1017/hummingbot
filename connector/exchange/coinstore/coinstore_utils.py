@@ -15,7 +15,24 @@ DEFAULT_FEES = TradeFeeSchema(
     maker_percent_fee_decimal=Decimal("0.0025"),
     taker_percent_fee_decimal=Decimal("0.0025"),
 )
+import os
+from datetime import datetime
 
+
+# logging無法使用，暫用
+def write_logs(text):
+    # Set up the logger with a directory in Windows (e.g., C:\hummingbot_logs)
+    LOG_DIR = "/mnt/c/hummingbot_logs"
+    os.makedirs(LOG_DIR, exist_ok=True)
+    LOG_FILE_PATH = os.path.join(LOG_DIR, "coinstore_connector.log")
+
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Format the log entry
+    log_entry = f"{current_time} - coinstore_utils - {text}"
+
+    with open(LOG_FILE_PATH, "a") as test_file:
+        test_file.write(log_entry + '\n')
 
 def is_exchange_information_valid(exchange_info: Dict[str, Any]) -> bool:
     """
@@ -23,9 +40,8 @@ def is_exchange_information_valid(exchange_info: Dict[str, Any]) -> bool:
     :param exchange_info: the exchange information for a trading pair
     :return: True if the trading pair is enabled, False otherwise
     """
-    exinfo = exchange_info.get("openTrade", False)
-
-    return exinfo
+    # write_logs(f'is_exchange_information_valid : exchange_info => {exchange_info}')
+    return exchange_info.get("openTrade", None)
 
 
 # Decompress WebSocket messages
@@ -52,7 +68,6 @@ def compress_ws_message(message):
 
 class CoinstoreConfigMap(BaseConnectorConfigMap):
     connector: str = Field(default="coinstore", client_data=None)
-
     coinstore_api_key: SecretStr = Field(
         default=...,
         client_data=ClientFieldData(
@@ -62,7 +77,6 @@ class CoinstoreConfigMap(BaseConnectorConfigMap):
             prompt_on_new=True,
         )
     )
-
     coinstore_secret_key: SecretStr = Field(
         default=...,
         client_data=ClientFieldData(

@@ -8,6 +8,26 @@ from hummingbot.core.api_throttler.async_throttler import AsyncThrottler
 from hummingbot.core.web_assistant.auth import AuthBase
 from hummingbot.core.web_assistant.connections.data_types import RESTMethod
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
+import time
+
+import os
+from datetime import datetime
+
+
+# logging無法使用，暫用
+def write_logs(text):
+    # Set up the logger with a directory in Windows (e.g., C:\hummingbot_logs)
+    LOG_DIR = "/mnt/c/hummingbot_logs"
+    os.makedirs(LOG_DIR, exist_ok=True)
+    LOG_FILE_PATH = os.path.join(LOG_DIR, "coinstore_connector.log")
+
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Format the log entry
+    log_entry = f"{current_time} - coinstore_web_utils - {text}"
+
+    with open(LOG_FILE_PATH, "a") as test_file:
+        test_file.write(log_entry + '\n')
 
 
 def public_rest_url(path_url: str, **kwargs) -> str:
@@ -18,12 +38,12 @@ def public_rest_url(path_url: str, **kwargs) -> str:
 
     :return: the full URL to the endpoint
     """
-    url_join = urljoin(CONSTANTS.REST_URL, path_url)
-
-    return url_join
+    # write_logs(f'public_rest_url : path_url {path_url}')
+    return urljoin(CONSTANTS.REST_URL, path_url)
 
 
 def private_rest_url(path_url: str, **kwargs) -> str:
+    # write_logs(f'private_rest_url : path_url {path_url}')
     return public_rest_url(path_url)
 
 
@@ -32,16 +52,19 @@ def build_api_factory(
         time_synchronizer: Optional[TimeSynchronizer] = None,
         time_provider: Optional[Callable] = None,
         auth: Optional[AuthBase] = None, ) -> WebAssistantsFactory:
-    throttler = throttler or create_throttler()
-    time_synchronizer = time_synchronizer or TimeSynchronizer()
-    time_provider = time_provider or (lambda: get_current_server_time(throttler=throttler))
-    api_factory = WebAssistantsFactory(
-        throttler=throttler,
-        auth=auth,
-        rest_pre_processors=[
-            TimeSynchronizerRESTPreProcessor(synchronizer=time_synchronizer, time_provider=time_provider),
-        ])
-    return api_factory
+    try:
+        throttler = throttler or create_throttler()
+        time_synchronizer = time_synchronizer or TimeSynchronizer()
+        time_provider = time_provider or (lambda: get_current_server_time(throttler=throttler))
+        api_factory = WebAssistantsFactory(
+            throttler=throttler,
+            auth=auth,
+            rest_pre_processors=[
+                TimeSynchronizerRESTPreProcessor(synchronizer=time_synchronizer, time_provider=time_provider),
+            ])
+        return api_factory
+    except Exception as e:
+        write_logs(f"build_api_factory : Error => {e}")
 
 
 def build_api_factory_without_time_synchronizer_pre_processor(throttler: AsyncThrottler) -> WebAssistantsFactory:
@@ -55,18 +78,6 @@ def create_throttler() -> AsyncThrottler:
 
 async def get_current_server_time(
         throttler: Optional[AsyncThrottler] = None,
-        domain: str = CONSTANTS.DEFAULT_DOMAIN,
-):
-    api_factory = build_api_factory_without_time_synchronizer_pre_processor(throttler=throttler)
-    rest_assistant = await api_factory.get_rest_assistant()
-    url = public_rest_url(path_url=CONSTANTS.SERVER_TIME_PATH)
-    if 'coinstore' in url:
-        url = 'https://api-cloud.bitmart.com/system/time'
-    response = await rest_assistant.execute_request(
-        url=url,
-        method=RESTMethod.GET,
-        throttler_limit_id=CONSTANTS.SERVER_TIME_PATH,
-    )
-    server_time = float(response["data"]["server_time"])
+        domain: str = CONSTANTS.DEFAULT_DOMAIN) -> float:
 
-    return server_time
+    return int(time.time() * 1000)

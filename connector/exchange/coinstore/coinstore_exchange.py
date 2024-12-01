@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 import logging
 from bidict import bidict
+import json, requests
 
 from hummingbot.connector.constants import s_decimal_NaN
 from hummingbot.connector.exchange.coinstore import (
@@ -29,6 +30,25 @@ from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFa
 
 if TYPE_CHECKING:
     from hummingbot.client.config.config_helpers import ClientConfigAdapter
+
+import os
+from datetime import datetime
+
+
+# logging無法使用，暫用
+def write_logs(text):
+    # Set up the logger with a directory in Windows (e.g., C:\hummingbot_logs)
+    LOG_DIR = "/mnt/c/hummingbot_logs"
+    os.makedirs(LOG_DIR, exist_ok=True)
+    LOG_FILE_PATH = os.path.join(LOG_DIR, "coinstore_connector.log")
+
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Format the log entry
+    log_entry = f"{current_time} - coinstore_exchange - {text}"
+
+    with open(LOG_FILE_PATH, "a") as test_file:
+        test_file.write(log_entry + '\n')
 
 
 class CoinstoreExchange(ExchangePyBase):
@@ -103,7 +123,7 @@ class CoinstoreExchange(ExchangePyBase):
 
     @property
     def trading_pairs_request_path(self):
-        return CONSTANTS.GET_TRADING_RULES_PATH_URL
+        return CONSTANTS.GET_LAST_TRADING_PRICES_PATH_URL
 
     @property
     def check_network_request_path(self):
@@ -134,6 +154,7 @@ class CoinstoreExchange(ExchangePyBase):
         is_time_synchronizer_related = ("Header X-CS-EXPIRES" in error_description
                                         and ("30007" in error_description or "30008" in error_description))
 
+        # write_logs('_is_request_exception_related_to_time_synchronizer=>' + str(is_time_synchronizer_related))
         return is_time_synchronizer_related
 
     def _is_order_not_found_during_status_update_error(self, status_update_exception: Exception) -> bool:
@@ -150,30 +171,52 @@ class CoinstoreExchange(ExchangePyBase):
         # dummy implementation
         return False
 
+    # login 3 =>
     def _create_web_assistants_factory(self) -> WebAssistantsFactory:
-        cwaf = web_utils.build_api_factory(
-            throttler=self._throttler,
-            time_synchronizer=self._time_synchronizer,
-            auth=self._auth)
+        try:
+            cwaf = web_utils.build_api_factory(
+                throttler=self._throttler,
+                time_synchronizer=self._time_synchronizer,
+                auth=self._auth)
 
-        return cwaf
+            return cwaf
+        except Exception as e:
+            write_logs(f"_create_web_assistants_factory : Error => {e}")
 
+    # === 用來處理交易所的訂單簿數據源 ===
     def _create_order_book_data_source(self) -> OrderBookTrackerDataSource:
-        capiobs = CoinstoreAPIOrderBookDataSource(
-            trading_pairs=self._trading_pairs,
-            connector=self,
-            api_factory=self._web_assistants_factory)
+        """
+        訂單簿數據源負責從交易所獲取訂單簿快照和更新信息，為交易策略提供即時的市場深度數據。
+        :return:
+        """
+        try:
+            trading_pairs = [a.replace('-', '').replace('_', '').upper() for a in self._trading_pairs]
+            capiobs = CoinstoreAPIOrderBookDataSource(
+                trading_pairs=trading_pairs,
+                connector=self,
+                api_factory=self._web_assistants_factory)
 
-        return capiobs
+            return capiobs
+        except Exception as e:
+            write_logs(f"_create_order_book_data_source : Error => {e}")
 
+    # === 處理與用戶相關的實時數據流 ===
     def _create_user_stream_data_source(self) -> UserStreamTrackerDataSource:
-        cusds = CoinstoreAPIUserStreamDataSource(
-            auth=self._auth,
-            trading_pairs=self._trading_pairs,
-            connector=self,
-            api_factory=self._web_assistants_factory, )
+        """
+        這個數據源負責與交易所的用戶流 WebSocket 連接，監控並收集與當前用戶賬戶相關的事件，供交易策略和風險管理模塊使用。
+        :return:
+        """
+        try:
+            trading_pairs = [a.replace('-', '').replace('_', '').upper() for a in self._trading_pairs]
+            cusds = CoinstoreAPIUserStreamDataSource(
+                auth=self._auth,
+                trading_pairs=trading_pairs,
+                connector=self,
+                api_factory=self._web_assistants_factory, )
 
-        return cusds
+            return cusds
+        except Exception as e:
+            write_logs(f"_create_user_stream_data_source : Error => {e}")
 
     # ============== coinstore 手續費 ===============
     async def _get_fee(self,
@@ -190,13 +233,11 @@ class CoinstoreExchange(ExchangePyBase):
         api_params = {
             "symbol": f"{base_currency}{quote_currency}",
         }
-
         url = '?'
         for key, value in api_params.items():
             url = url + str(key) + '=' + str(value) + '&'
 
         params_url = url[0:-1]
-
         try:
             response = await self._api_get(
                 path_url=CONSTANTS.GET_TRADE_DETAIL_PATH_URL + params_url,
@@ -226,7 +267,8 @@ class CoinstoreExchange(ExchangePyBase):
             if taker_fees:
                 self.cached_taker_fee_pct = sum(taker_fees) / len(taker_fees)
 
-        except Exception:
+        except Exception as e:
+            write_logs(f"_get_fee : Error => {e}")
             self.logger().exception("Failed to fetch recent fee rates. Using cached or default values.")
 
         # Use the `is_maker` flag to determine the fee type
@@ -235,9 +277,8 @@ class CoinstoreExchange(ExchangePyBase):
 
         fee_pct = self.cached_maker_fee_pct if is_maker else self.cached_taker_fee_pct
         gf = AddedToCostTradeFee(percent=fee_pct)
-
+        write_logs(f"_get_fee : fee_pct => {fee_pct} *** gf => {gf}")
         return gf
-        # return AddedToCostTradeFee(percent=self.estimate_fee_pct(is_maker))
 
     # ========== coinstroe ==========
     async def _place_order(self,
@@ -256,76 +297,88 @@ class CoinstoreExchange(ExchangePyBase):
         :param price: The price for the order (ignored for MARKET).
         :return: A tuple containing the exchange order ID and the timestamp.
         """
-        # Map Hummingbot's OrderType to exchange API's ordType
-        if order_type == OrderType.MARKET:
-            ord_type = "MARKET"
-            ord_price = None  # Market orders do not require a price
-        elif order_type == OrderType.LIMIT:
-            ord_type = "LIMIT"
-            ord_price = f"{price:f}"
-        elif order_type == OrderType.LIMIT_MAKER:
-            ord_type = "POST_ONLY"
-            ord_price = f"{price:f}"
-        else:
-            raise ValueError(f"Unsupported order type: {order_type}")
+        try:
+            # Map Hummingbot's OrderType to exchange API's ordType
+            if order_type == OrderType.MARKET:
+                ord_type = "MARKET"
+                ord_price = None  # Market orders do not require a price
+            elif order_type == OrderType.LIMIT:
+                ord_type = "LIMIT"
+                ord_price = f"{price:f}"
+            elif order_type == OrderType.LIMIT_MAKER:
+                ord_type = "POST_ONLY"
+                ord_price = f"{price:f}"
+            else:
+                raise ValueError(f"Unsupported order type: {order_type}")
 
-        # Construct API parameters
-        api_params = {
-            "symbol": await self.exchange_symbol_associated_to_pair(trading_pair),
-            "side": trade_type.name.upper(),  # BUY or SELL
-            "ordType": ord_type,
-            "ordQty": f"{amount:f}"
-        }
+            # Construct API parameters
+            api_params = {
+                # "symbol": await self.exchange_symbol_associated_to_pair(trading_pair),
+                "symbol": trading_pair,
+                "side": trade_type.name.upper(),  # BUY or SELL
+                "ordType": ord_type,
+                "ordQty": f"{amount:f}"
+            }
 
-        # Add price only if required by the order type
-        if ord_price is not None:
-            api_params["ordPrice"] = ord_price
+            # Add price only if required by the order type
+            if ord_price is not None:
+                api_params["ordPrice"] = ord_price
 
-        # Send the API request to place the order
-        order_result = await self._api_post(
-            path_url=CONSTANTS.CREATE_ORDER_PATH_URL,
-            data=api_params,
-            is_auth_required=True
-        )
+            # Send the API request to place the order
+            order_result = await self._api_post(
+                path_url=CONSTANTS.CREATE_ORDER_PATH_URL,
+                data=api_params,
+                is_auth_required=True
+            )
+            # Extract order ID from the response
+            exchange_order_id = str(order_result["data"]["ordId"])
 
-        # Extract order ID from the response
-        exchange_order_id = str(order_result["data"]["ordId"])
-
-        # Return the order ID and the current timestamp
-        return exchange_order_id, self.current_timestamp
+            # Return the order ID and the current timestamp
+            return exchange_order_id, self.current_timestamp
+        except Exception as e:
+            write_logs(f"_place_order : Error => {e}")
 
     # ========== coinstroe ==========
     async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder):
-        symbol = await self.exchange_symbol_associated_to_pair(trading_pair=tracked_order.trading_pair)
+        try:
+            symbol = await self.exchange_symbol_associated_to_pair(trading_pair=tracked_order.trading_pair)
+            api_params = {
+                "symbol": symbol,
+                "ordId": order_id,
+            }
+            cancel_result = await self._api_post(
+                path_url=CONSTANTS.CANCEL_ORDER_PATH_URL,
+                data=api_params,
+                is_auth_required=True)
+            if cancel_result.get("data", {}).get("state") == "CANCELED":
+                return True
+            return False
+        except Exception as e:
+            write_logs(f"_place_cancel : Error => {e}")
 
-        api_params = {
-            "symbol": symbol,
-            "ordId": order_id,
-        }
-        cancel_result = await self._api_post(
-            path_url=CONSTANTS.CANCEL_ORDER_PATH_URL,
-            data=api_params,
-            is_auth_required=True)
-
-        if cancel_result.get("data", {}).get("state") == "CANCELED":
-            return True
-        return False
-
-    # ========== coinstroe 沒有交易規則，自建默認規則。需再測試 ==========
+    # ========== coinstroe 沒有交易規則，自建默認規則。 ==========
     async def _format_trading_rules(self, symbols_details: Dict[str, Any]) -> List[TradingRule]:
-        result = []
+        if not symbols_details['data']:
+            url = "https://api.coinstore.com/api/v2/public/config/spot/symbols"
+            payload = json.dumps({})
+            payload = payload.encode("utf-8")
+            headers = {}
+            exchange_info = requests.request("POST", url, headers=headers, data=payload).text
+            symbols_details = json.loads(exchange_info)
 
+        result = []
         try:
             # 遍历返回的交易对详情
             for rule in symbols_details.get("data", []):  # 直接获取 data 列表
                 try:
-                    trading_pair = await self.trading_pair_associated_to_exchange_symbol(rule["symbol"])
-
-                    # 从参数提取规则
-                    min_order_size = Decimal(rule.get("baseMinSize", "0.00001"))
-                    min_order_value = Decimal(rule.get("minFunds", "0.1"))
-                    min_base_amount_increment = Decimal(rule.get("baseIncrement", "0.00000001"))
-                    min_price_increment = Decimal(rule.get("priceIncrement", "0.1"))
+                    if rule['openTrade']:
+                        trading_pair = await self.trading_pair_associated_to_exchange_symbol(rule["symbolCode"].upper())
+                    else:
+                        continue
+                    min_order_size = Decimal(rule.get("minLmtSz", "0.00001"))  # "minLmtSz" 是最低限價訂單大小
+                    min_order_value = Decimal(rule.get("minMktVa", "0.1"))  # "minMktVa" 是最低市價訂單價值
+                    min_base_amount_increment = Decimal(rule.get("minLmtPr", "0.00000001"))  # "minLmtPr" 是最低限價訂單價格
+                    min_price_increment = Decimal(rule.get("minLmtPr", "0.00000001"))  # "minLmtPr" 是最低限價訂單價格
 
                     # 构造 TradingRule 对象
                     result.append(TradingRule(
@@ -335,15 +388,12 @@ class CoinstoreExchange(ExchangePyBase):
                         min_base_amount_increment=min_base_amount_increment,
                         min_price_increment=min_price_increment
                     ))
-
-                except Exception:
+                except Exception as e:
+                    write_logs(f"_format_trading_rules : Error => {e}")
                     self.logger().exception(f"Error parsing the trading pair rule {rule}. Skipping.")
-        except KeyError:
+        except Exception as e:
+            write_logs(f"_format_trading_rules : Error2 => {e}")
             self.logger().warning("Symbols details do not contain valid trading rules.")
-
-        # 如果没有获取到任何规则，添加日志提示
-        if not result:
-            print('not result!!!!!!!!!!!!!')
 
         return result
 
@@ -358,11 +408,9 @@ class CoinstoreExchange(ExchangePyBase):
         """
         Calls REST API to update total and available balances.
         """
-
         local_asset_names = set(self._account_balances.keys())
         remote_asset_names = set()
         payload = {}
-
         account_info = await self._api_post(
             path_url=CONSTANTS.GET_ACCOUNT_SUMMARY_PATH_URL,
             data=payload,
@@ -370,7 +418,6 @@ class CoinstoreExchange(ExchangePyBase):
         )
 
         account_balances_temp = {}
-
         for account in account_info["data"]:
             asset_name = account.get("currency")  # 獲取資產名稱
             balance = account.get("balance", 0)  # 獲取資產餘額
@@ -396,82 +443,91 @@ class CoinstoreExchange(ExchangePyBase):
 
             self._account_balances[asset_name] = account_balances_temp[asset_name]
             remote_asset_names.add(asset_name)
-
         asset_names_to_remove = local_asset_names.difference(remote_asset_names)
 
         for asset_name in asset_names_to_remove:
             del self._account_available_balances[asset_name]
             del self._account_balances[asset_name]
 
-    # ========== coinstore 获取订单信息 ===========
+    # ========== coinstore 獲取單一訂單信息 InFlightOrder -> Dict ===========
     async def _request_order_update(self, order: InFlightOrder) -> Dict[str, Any]:
-
+        # tracked_order=data
+        # 获取订单信息 GET /api/v2/trade/order/orderInfo?ordId=123456789
         params_url = f"?ordId={order.exchange_order_id}"
+        write_logs(f"_request_order_update : params_url => {params_url}")
+        try:
+            result = await self._api_get(
+                path_url=CONSTANTS.GET_ORDER_DETAIL_PATH_URL + params_url,
+                params=params_url[1:],
+                is_auth_required=True)
 
-        result = await self._api_get(
-            path_url=CONSTANTS.GET_ORDER_DETAIL_PATH_URL + params_url,
-            params=params_url[1:],
-            is_auth_required=True)
-
-        return result
+            return result
+        except Exception as e:
+            write_logs(f"_request_order_update : Error => {e}")
 
     # ======== coinstore 获取用户最新成交 =========
     async def _request_order_fills(self, order: InFlightOrder) -> Dict[str, Any]:
+        symbol = await self.exchange_symbol_associated_to_pair(order.trading_pair)
+        write_logs(f"_request_order_fills : symbol => {symbol}")
         api_params = {
-            "symbol": await self.exchange_symbol_associated_to_pair(order.trading_pair),
-            # "side": 1 if order_side == TradeType.BUY else -1,
-            # "pageNum": 1,
-            # "pageSize": 20,
+            "symbol": symbol,
         }
-
         url = '?'
         for key, value in api_params.items():
             url = url + str(key) + '=' + str(value) + '&'
         params_url = url[0:-1]
 
-        result = await self._api_get(
-            path_url=CONSTANTS.GET_TRADE_DETAIL_PATH_URL + params_url,
-            params=params_url[1:],
-            is_auth_required=True)
+        try:
+            result = await self._api_get(
+                path_url=CONSTANTS.GET_TRADE_DETAIL_PATH_URL + params_url,
+                params=params_url[1:],
+                is_auth_required=True)
 
-        return result
+            return result
+        except Exception as e:
+            write_logs(f"_request_order_fills : Error => {e}")
 
-    # ===== coinstore ??? =====
+    # ===== coinstore 更新所有交易訂單 =====未實測
     async def _all_trade_updates_for_order(self, order: InFlightOrder) -> List[TradeUpdate]:
         trade_updates = []
-
         try:
             if order.exchange_order_id is not None:
                 # 获取用户最新成交
-                all_fills_response = await self._request_order_fills(order=order)
+                all_fills_response = await self._request_order_fills(order=order)  # Dict
                 # 訂單更新
                 updates = self._create_order_fill_updates(order=order, fill_update=all_fills_response)
                 trade_updates.extend(updates)
         except asyncio.CancelledError:
             raise
         except Exception as ex:
+            write_logs(f"_request_order_fills : Error => {ex}")
             is_error_caused_by_unexistent_order = '"code":50005' in str(ex)
             if not is_error_caused_by_unexistent_order:
                 raise
 
         return trade_updates
 
-    # === coinstore ???? ===
+    # === coinstore ===未實測
     async def _request_order_status(self, tracked_order: InFlightOrder) -> OrderUpdate:
-        updated_order_data = await self._request_order_update(order=tracked_order)  # 获取订单信息
+        updated_order_data = await self._request_order_update(order=tracked_order)  # =>InFlightOrder => respone(dict)
         order_update = self._create_order_update(order=tracked_order, order_update=updated_order_data)
 
         return order_update
 
     # === coinstore 訂單更新===
     async def _create_order_fill_updates(self, order: InFlightOrder, fill_update: Dict[str, Any]) -> List[TradeUpdate]:
+        """
+        將交易所返回的成交記錄數據（fill_update，通常是 JSON 格式的字典）轉換為 Hummingbot 的標準 TradeUpdate 對象列表
+        :param order:
+        :param fill_update:
+        :return:
+        """
         # 获取当前订单:baseCurrency, quoteCurrency
         order_url = "/api/v2/trade/order/active"
         try:
-            orders_info = await self._api_get(path_url=order_url, params='', is_auth_required=True)
+            orders_info = await self._api_get(path_url=order_url, params='', is_auth_required=True)  # Dict
         except Exception as e:
-            # 處理錯誤
-            print(f"Error fetching orders info: {e}")
+            write_logs(f"_create_order_fill_updates : orders_info_Error => {e}")
             return []  # 或者根據情況返回空列表或做其他處理
 
         currency_mapping = {}
@@ -489,8 +545,9 @@ class CoinstoreExchange(ExchangePyBase):
                     is_auth_required=True
                 )
             except Exception as e:
-                print(f"Error fetching account matches: {e}")
+                write_logs(f"_create_order_fill_updates : account_matches_Error => {e}")
                 continue
+
             if account_matches.get('data'):
                 base_currency_id = account_matches['data'][0].get('baseCurrencyId')
                 quote_currency_id = account_matches['data'][0].get('quoteCurrencyId')
@@ -506,136 +563,162 @@ class CoinstoreExchange(ExchangePyBase):
 
         updates = []
         fills_data = fill_update["data"]
-
         for fill_data in fills_data:
             base_currency = currency_mapping.get(fill_data["baseCurrencyId"], "UNKNOWN")
             quote_currency = currency_mapping.get(fill_data["quoteCurrencyId"], "UNKNOWN")
             fee_currency = currency_mapping.get(fill_data["feeCurrencyId"], "UNKNOWN")
 
-            fee = TradeFeeBase.new_spot_fee(
-                fee_schema=self.trade_fee_schema(),
-                trade_type=order.trade_type,
-                percent_token=fee_currency,
-                flat_fees=[TokenAmount(amount=Decimal(fill_data["fee"]), token=fee_currency)]
-            )
+            try:
+                fee = TradeFeeBase.new_spot_fee(
+                    fee_schema=self.trade_fee_schema(),
+                    trade_type=order.trade_type,
+                    percent_token=fee_currency,
+                    flat_fees=[TokenAmount(amount=Decimal(fill_data["fee"]), token=fee_currency)]
+                )
+                # 确保 execQty 不为零
+                fill_price = Decimal(0)
+                if Decimal(fill_data["execQty"]) != 0:
+                    fill_price = Decimal(fill_data["execAmt"]) / Decimal(fill_data["execQty"])
 
-            # 确保 execQty 不为零
-            fill_price = Decimal(0)
-            if Decimal(fill_data["execQty"]) != 0:
-                fill_price = Decimal(fill_data["execAmt"]) / Decimal(fill_data["execQty"])
-
-            trade_update = TradeUpdate(
-                trade_id=str(fill_data["tradeId"]),
-                client_order_id=order.client_order_id,
-                exchange_order_id=str(fill_data["orderId"]),
-                trading_pair=f"{base_currency}-{quote_currency}",
-                fee=fee,
-                fill_base_amount=Decimal(fill_data["execQty"]),
-                fill_quote_amount=Decimal(fill_data["execAmt"]),
-                fill_price=fill_price,
-                fill_timestamp=int(fill_data["matchTime"]),
-            )
-
-            updates.append(trade_update)
+                trade_update = TradeUpdate(
+                    trade_id=str(fill_data["tradeId"]),
+                    client_order_id=order.client_order_id,
+                    exchange_order_id=str(fill_data["orderId"]),
+                    trading_pair=f"{base_currency}-{quote_currency}",
+                    fee=fee,
+                    fill_base_amount=Decimal(fill_data["execQty"]),
+                    fill_quote_amount=Decimal(fill_data["execAmt"]),
+                    fill_price=fill_price,
+                    fill_timestamp=int(fill_data["matchTime"]),
+                )
+                updates.append(trade_update)
+            except Exception as e:
+                write_logs(f"_create_order_fill_updates : updates_Error => {e}")
 
         return updates
 
-    # === coinstore ??? ===
+    # === coinstore ===
     def _create_order_update(self, order: InFlightOrder, order_update: Dict[str, Any]) -> OrderUpdate:
-        # order_update 订单信息 /api/v2/trade/order/orderInfo
         order_data = order_update["data"]
-        new_state = CONSTANTS.ORDER_STATE[order_data["status"]]
-        update = OrderUpdate(
-            client_order_id=order.client_order_id,
-            exchange_order_id=str(order_data["ordId"]),
-            trading_pair=order.trading_pair,
-            update_timestamp=self.current_timestamp,
-            new_state=new_state,
-        )
+        new_state = CONSTANTS.ORDER_STATE[order_data["ordStatus"]]
+        try:
+            update = OrderUpdate(
+                client_order_id=order.client_order_id,
+                exchange_order_id=str(order_data["ordId"]),
+                trading_pair=order.trading_pair,
+                update_timestamp=self.current_timestamp,
+                new_state=new_state,
+            )
 
-        return update
+            return update
+        except Exception as e:
+            write_logs(f"_create_order_update : Error => {e}")
 
     """    """
 
-    # ========= 還未更改 =============
+    # ==== coinstore 查單沒有websocket版，改用rest api定時抓 ====
     async def _user_stream_event_listener(self):
-        async for event_message in self._iter_user_event_queue():
+        """
+        Periodically checks active orders and updates their status by calling the Coinstore API.
+        """
+        while True:
             try:
-                event_type = event_message.get("table")
-                execution_data = event_message.get("data", [])
+                # 獲取當前所有活躍訂單的資料
+                active_orders_response = await self._api_get(
+                    path_url=CONSTANTS.GET_ORDER_DETAIL_PATH_URL,  # 替換為對應的 API 路徑
+                    params={},  # 你可以在這裡傳遞必要的參數
+                    is_auth_required=True
+                )
+                # 遍歷每一個訂單並更新
+                for order_data in active_orders_response.get('data', []):
+                    try:
+                        # 提取每個訂單的信息
+                        client_order_id = order_data["clOrdId"]
+                        exchange_order_id = str(order_data["ordId"])  # 'ordId' 是訂單 ID，轉換為字串
+                        trading_pair = order_data["symbol"]
+                        order_type = OrderType[order_data["ordType"]]  # 根據 'ordType' 來設置 order_type
+                        trade_type = TradeType[order_data["side"]]  # 根據 'side' 來設置 trade_type
+                        amount = Decimal(order_data["ordQty"])  # 'ordQty' 是數量，轉換為 Decimal
+                        creation_timestamp = order_data["timestamp"]  # 'timestamp' 是創建時間
+                        # 'ordPrice' 是價格，轉換為 Decimal
+                        price = Decimal(order_data["ordPrice"]) if order_data["ordPrice"] else None
+                        initial_state = OrderState[order_data["ordStatus"]]  # 根據 'ordStatus' 來設置 initial_state
 
-                # Refer to https://developer-pro.coinstore.com/en/spot/#private-order-progress
-                if event_type == CONSTANTS.PRIVATE_ORDER_PROGRESS_CHANNEL_NAME:
-                    for each_event in execution_data:
-                        try:
-                            client_order_id: Optional[str] = each_event.get("client_order_id")
-                            fillable_order = self._order_tracker.all_fillable_orders.get(client_order_id)
-                            updatable_order = self._order_tracker.all_updatable_orders.get(client_order_id)
+                        # 創建 InFlightOrder 物件
+                        in_flight_order = InFlightOrder(
+                            client_order_id=client_order_id,
+                            trading_pair=trading_pair,
+                            order_type=order_type,
+                            trade_type=trade_type,
+                            amount=amount,
+                            creation_timestamp=creation_timestamp,
+                            price=price,
+                            exchange_order_id=exchange_order_id,
+                            initial_state=initial_state
+                        )
 
-                            new_state = CONSTANTS.ORDER_STATE[each_event["state"]]
-                            event_timestamp = int(each_event["ms_t"])  # * 1e-3
+                        # 訂單更新狀態
+                        order_update = await self._request_order_status(in_flight_order)
 
-                            if fillable_order is not None:
-                                is_fill_candidate_by_state = new_state in [OrderState.PARTIALLY_FILLED,
-                                                                           OrderState.FILLED]
-                                is_fill_candidate_by_amount = fillable_order.executed_amount_base < Decimal(
-                                    each_event["filled_size"])
-                                if is_fill_candidate_by_state and is_fill_candidate_by_amount:
-                                    try:
-                                        trade_fills: Dict[str, Any] = await self._request_order_fills(fillable_order)
-                                        trade_updates = self._create_order_fill_updates(
-                                            order=fillable_order,
-                                            fill_update=trade_fills)
-                                        for trade_update in trade_updates:
-                                            self._order_tracker.process_trade_update(trade_update)
-                                    except asyncio.CancelledError:
-                                        raise
-                                    except Exception:
-                                        self.logger().exception("Unexpected error requesting order fills for "
-                                                                f"{fillable_order.client_order_id}")
-                            if updatable_order is not None:
-                                order_update = OrderUpdate(
-                                    trading_pair=updatable_order.trading_pair,
-                                    update_timestamp=event_timestamp,
-                                    new_state=new_state,
-                                    client_order_id=client_order_id,
-                                    exchange_order_id=each_event["order_id"],
-                                )
-                                self._order_tracker.process_order_update(order_update=order_update)
+                        if order_update:
+                            # 根據 API 返回的訂單狀態更新
+                            new_state = order_update["ordStatus"]
+                            order_update = OrderUpdate(
+                                client_order_id=client_order_id,
+                                exchange_order_id=exchange_order_id,
+                                trading_pair=trading_pair,
+                                update_timestamp=int(time.time() * 1000),  # 使用當前時間戳
+                                new_state=new_state
+                            )
 
-                        except asyncio.CancelledError:
-                            raise
-                        except Exception:
-                            self.logger().exception("Unexpected error in user stream listener loop.")
+                            # 處理訂單狀態更新
+                            self._order_tracker.process_order_update(order_update=order_update)
+
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        write_logs(f"_user_stream_event_listener : Error1 => {e}")
+                        self.logger().exception(f"Error processing order update for order {order_data}. Skipping.")
+
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                self.logger().exception("Unexpected error in user stream listener loop.")
+            except Exception as e:
+                write_logs(f"_user_stream_event_listener : Error2 => {e}")
+                self.logger().exception("Error in user stream listener loop.")
 
-    # === exchange_info ===
+            # 每次輪詢後設置延遲（每秒最多40個請求）
+            await asyncio.sleep(0.25)  # 設置延遲為0.25秒
+
+    # === coinstore -> hummingbot 幣對比照 ===
     def _initialize_trading_pair_symbols_from_exchange_info(self, exchange_info: Dict[str, Any]):
-        import json, requests
-        url = "https://api.coinstore.com/api/v2/public/config/spot/symbols"
-        payload = json.dumps({})
-        payload = payload.encode("utf-8")
-        headers = {}
-        exchange_info = requests.request("POST", url, headers=headers, data=payload).text
+        try:
+            # exchange_info只推get值，post無資料，自建幣對
+            url = "https://api.coinstore.com/api/v2/public/config/spot/symbols"
+            payload = json.dumps({})
+            payload = payload.encode("utf-8")
+            headers = {}
+            exchange_info = requests.request("POST", url, headers=headers, data=payload).text
+            exchange_info = json.loads(exchange_info)
 
-        exchange_info = json.loads(exchange_info)
+            mapping = bidict()
+            for symbol_data in filter(coinstore_utils.is_exchange_information_valid, exchange_info["data"]):
+                mapping[symbol_data["symbolCode"].upper()] = combine_to_hb_trading_pair(
+                    base=symbol_data["tradeCurrencyCode"].upper(),
+                    quote=symbol_data["quoteCurrencyCode"].upper())
 
-        mapping = bidict()
-        for symbol_data in filter(coinstore_utils.is_exchange_information_valid, exchange_info["data"]):
-            mapping[symbol_data["symbolCode"].upper()] = combine_to_hb_trading_pair(
-                base=symbol_data["tradeCurrencyCode"].upper(),
-                quote=symbol_data["quoteCurrencyCode"].upper())
-
-        self._set_trading_pair_symbol_map(mapping)
+            self._set_trading_pair_symbol_map(mapping)
+        except Exception as e:
+            write_logs(f"_initialize_trading_pair_symbols_from_exchange_info : Error => {e}")
 
     # === coinstore 最新成交價 ===
     async def _get_last_traded_price(self, trading_pair: str) -> float:
-        symbol = await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
-        resp_json = await self._api_get(
-            path_url=CONSTANTS.GET_PRICE_PATH_URL + f';symbol={symbol}'
-        )
+        try:
+            # self.logger().error(f"Error initializing trading pairs: {str(e)}")
+            symbol = await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
+            resp_json = await self._api_get(
+                path_url=CONSTANTS.GET_PRICE_PATH_URL + f';symbol={symbol}'
+            )
 
-        return float(resp_json['data'][0]['price'])
+            return float(resp_json['data'][0]['price'])
+        except Exception as e:
+            write_logs(f"_get_last_traded_price : Error => {e}")
