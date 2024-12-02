@@ -38,12 +38,10 @@ def public_rest_url(path_url: str, **kwargs) -> str:
 
     :return: the full URL to the endpoint
     """
-    # write_logs(f'public_rest_url : path_url {path_url}')
     return urljoin(CONSTANTS.REST_URL, path_url)
 
 
 def private_rest_url(path_url: str, **kwargs) -> str:
-    # write_logs(f'private_rest_url : path_url {path_url}')
     return public_rest_url(path_url)
 
 
@@ -81,3 +79,4 @@ async def get_current_server_time(
         domain: str = CONSTANTS.DEFAULT_DOMAIN) -> float:
 
     return int(time.time() * 1000)
+

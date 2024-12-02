@@ -20,18 +20,18 @@ PRIVATE_ORDER_PROGRESS_CHANNEL_NAME = "@trade"
 
 # REST API ENDPOINTS
 CHECK_NETWORK_PATH_URL = "/api/system/service"  # ?
-GET_PRICE_PATH_URL = "/api/v1/ticker/price"  # 获取所有交易对最新价格
-GET_LAST_TRADING_PRICES_PATH_URL = "/api/v1/market/tickers"  # 市场所有交易对的Ticker
-GET_ORDER_BOOK_PATH_URL = "/api/v1/market/depth"  # 获取交易对完整的深度
-GET_TRADE_DETAIL_PATH_URL = "/api/trade/match/accountMatches"  # 获取用户最新成交
-GET_ACTIVE_ORDERS_PATH_URL = "/api/v2/trade/order/active"  # 获取当前订单 v2 版本
+GET_PRICE_PATH_URL = "/api/v1/ticker/price"  # 獲取所有交易對最新價格
+GET_LAST_TRADING_PRICES_PATH_URL = "/api/v1/market/tickers"  # 市場所有交易對的Ticker
+GET_ORDER_BOOK_PATH_URL = "/api/v1/market/depth"  # 獲取交易對完整的深度
+GET_TRADE_DETAIL_PATH_URL = "/api/trade/match/accountMatches"  # 獲取用戶最新成交
+GET_ACTIVE_ORDERS_PATH_URL = "/api/v2/trade/order/active"  # 獲取當前訂單 v2 版本
 
 # ==== POST ====
-GET_TRADING_RULES_PATH_URL = '/api/v2/public/config/spot/symbols'  # 现货币种币对信息
-CREATE_ORDER_PATH_URL = "/api/trade/order/place"  # 创建订单
-CANCEL_ORDER_PATH_URL = "/api/trade/order/cancel"  # 取消委托单
+GET_TRADING_RULES_PATH_URL = '/api/v2/public/config/spot/symbols'  # 現貨幣種幣對資訊
+CREATE_ORDER_PATH_URL = "/api/trade/order/place"  # 創建訂單
+CANCEL_ORDER_PATH_URL = "/api/trade/order/cancel"  # 取消委託單
 GET_ACCOUNT_SUMMARY_PATH_URL = "/api/spot/accountList"
-GET_ORDER_DETAIL_PATH_URL = "/api/v2/trade/order/orderInfo"  # 获取订单信息V2
+GET_ORDER_DETAIL_PATH_URL = "/api/v2/trade/order/orderInfo"  # 獲取訂單資訊V2
 
 SERVER_TIME_PATH = "/api/system/time"
 
@@ -64,3 +64,4 @@ ORDER_STATE = {
     "CANCELED": OrderState.CANCELED,
     "FILLED": OrderState.FILLED,
 }
+

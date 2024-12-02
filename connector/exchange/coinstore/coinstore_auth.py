@@ -55,7 +55,7 @@ class CoinstoreAuth(AuthBase):
                 headers.update(request.headers)
             headers.update(self.authentication_headers(request=request))
             request.headers = headers
-    
+
             return request
         except Exception as e:
             write_logs(f"rest_authenticate : Error => {e}")
@@ -65,7 +65,6 @@ class CoinstoreAuth(AuthBase):
         This method is intended to configure a websocket request to be authenticated. OKX does not use this
         functionality
         """
-        write_logs(f"ws_authenticate")
         return request  # pass-through
 
     def _generate_signature(self, timestamp: str, body: Optional[str] = None) -> str:
@@ -82,7 +81,7 @@ class CoinstoreAuth(AuthBase):
                 payload = json.dumps(body.params)
         else:
             payload = json.dumps(json.loads(body.data))
-  
+
         payload = payload.encode("utf-8")
 
         signature = hmac.new(key, payload, hashlib.sha256).hexdigest()
@@ -115,3 +114,4 @@ class CoinstoreAuth(AuthBase):
                 timestamp=timestamp,
                 body="")
         ]
+

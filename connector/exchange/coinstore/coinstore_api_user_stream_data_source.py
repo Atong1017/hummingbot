@@ -34,9 +34,6 @@ def write_logs(text):
         test_file.write(log_entry + '\n')
 
 
-write_logs('Start')
-
-
 class CoinstoreAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
     _logger: Optional[HummingbotLogger] = None
@@ -58,14 +55,14 @@ class CoinstoreAPIUserStreamDataSource(UserStreamTrackerDataSource):
     # 1 === coinstrore ===
     async def _connected_websocket_assistant(self) -> WSAssistant:
         """
-        连接并认证交易所的私有 WebSocket，以便通过 WebSocket 接口与交易所进行实时通信
+        連接並認證交易所的私有 WebSocket，以便通過 WebSocket 介面與交易所進行即時通信
         """
         try:
             ws: WSAssistant = await self._get_ws_assistant()
             await ws.connect(
                 ws_url=CONSTANTS.WSS_PRIVATE_URL,
                 ping_timeout=CONSTANTS.WS_PING_TIMEOUT)
-            channels = [f"{pair}@ticker" for pair in self._trading_pairs]  # 使用 trading_pairs 动态生成频道列表
+            channels = [f"{pair}@ticker" for pair in self._trading_pairs]  # 使用 trading_pairs 動態生成頻道清單
             payload = {
                 "op": "SUB",
                 "channel": channels,
@@ -87,7 +84,7 @@ class CoinstoreAPIUserStreamDataSource(UserStreamTrackerDataSource):
         except Exception as e:
             write_logs(f"_connected_websocket_assistant : Error => {e}")
 
-    # 3 订阅交易所的特定私有频道
+    # 3 訂閱交易所的特定私有頻道
     async def _subscribe_channels(self, websocket_assistant: WSAssistant):
         try:
             channels = [f"{pair}{CONSTANTS.PRIVATE_ORDER_PROGRESS_CHANNEL_NAME}" for pair in self._trading_pairs]
@@ -107,10 +104,10 @@ class CoinstoreAPIUserStreamDataSource(UserStreamTrackerDataSource):
             self.logger().exception("Unexpected error occurred subscribing to order book trading and delta streams...")
             raise
 
-    # 4 处理从WebSocket接收到的实时消息
+    # 4 處理從WebSocket接收到的即時消息
     async def _process_websocket_messages(self, websocket_assistant: WSAssistant, queue: asyncio.Queue):
         """
-        处理从WebSocket接收到的实时消息，将其解压、解析并根据消息内容进一步处理=
+        處理從WebSocket接收到的即時消息，將其解壓、解析並根據消息內容進一步處理=
         :param websocket_assistant:
         :param queue:
         :return:
@@ -143,17 +140,18 @@ class CoinstoreAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
     # 5 === coinstore websockt:instrumentId表示通且有資訊 ===
     async def _process_event_message(self, event_message: Dict[str, Any], queue: asyncio.Queue):
-        # 检查event_message是否符合特定结构要求
+        # 檢查event_message是否符合特定結構要求
         if len(event_message) > 0 and "instrumentId" in event_message:
-            # 将event_message放入队列
+            # 將event_message放入佇列
             queue.put_nowait(event_message)
 
-    # 2 获取 WebSocket WSAssistant
+    # 2 獲取 WebSocket WSAssistant
     async def _get_ws_assistant(self) -> WSAssistant:
         """
-        确保该实例只被初始化一次并在后续使用中复用。这是一个典型的**懒加载模式（lazy initialization）**实现，用于优化资源管理和性能
+        確保該實例只被初始化一次並在後續使用中複用。這是一個典型的**懶載入模式（lazy initialization）**實現，用於優化資源管理和性能
         :return:
         """
+        write_logs(f"_get_ws_assistant")
         async with self._ws_assistant_lock:
             if self._ws_assistant is None:
                 try:
