@@ -151,7 +151,6 @@ class CoinstoreAPIUserStreamDataSource(UserStreamTrackerDataSource):
         確保該實例只被初始化一次並在後續使用中複用。這是一個典型的**懶載入模式（lazy initialization）**實現，用於優化資源管理和性能
         :return:
         """
-        write_logs(f"_get_ws_assistant")
         async with self._ws_assistant_lock:
             if self._ws_assistant is None:
                 try:

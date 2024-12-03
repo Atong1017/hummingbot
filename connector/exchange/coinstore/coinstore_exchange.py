@@ -722,7 +722,6 @@ class CoinstoreExchange(ExchangePyBase):
             )
             for res in resp_json['data']:
                 if res['symbol'] == trading_pair.replace("-", ""):
-                    write_logs(f"_get_last_traded_price : res => {res}")
                     return float(res['price'])
         except Exception as e:
             write_logs(f"_get_last_traded_price : Error => {e}")
