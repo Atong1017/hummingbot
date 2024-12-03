@@ -57,6 +57,7 @@ class CoinstoreAPIOrderBookDataSource(OrderBookTrackerDataSource):
                                      trading_pairs: List[str],
                                      domain: Optional[str] = None) -> Dict[str, float]:
         try:
+            # 例:{'BTC-USDT': 98765}
             return await self._connector.get_last_traded_prices(trading_pairs=trading_pairs)
         except Exception as e:
             write_logs(f"get_last_traded_prices : Error => {e}")
